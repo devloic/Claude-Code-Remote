@@ -671,13 +671,23 @@ class TmuxMonitor extends EventEmitter {
         // Join response lines and clean up
         claudeResponse = responseLines.join('\n').trim();
         
-        // Remove box characters but preserve formatting
+        // Remove box characters and separator lines but preserve formatting
         claudeResponse = claudeResponse
             .replace(/[╭╰│]/g, '')
             .replace(/^\s*│\s*/gm, '')
-            // Don't collapse multiple spaces - preserve code formatting
-            // .replace(/\s+/g, ' ')
+            // Remove horizontal separator lines (─────────────)
+            .replace(/^─+$/gm, '')
+            .replace(/^──+$/gm, '')
+            // Remove lines that are just separators with spaces
+            .replace(/^\s*─+\s*$/gm, '')
+            // Remove empty prompt lines (just ">")
+            .replace(/^\s*>\s*$/gm, '')
+            // Remove shortcut help line
+            .replace(/^\s*\?\s*for shortcuts\s*$/gm, '')
             .trim();
+
+        // Remove excessive empty lines (more than 2 consecutive)
+        claudeResponse = claudeResponse.replace(/\n\n\n+/g, '\n\n');
 
         // Don't limit response length - we want the full response
         // if (claudeResponse.length > 500) {

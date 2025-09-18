@@ -10,6 +10,7 @@ const path = require('path');
 const fs = require('fs');
 const TmuxMonitor = require('../../utils/tmux-monitor');
 const { execSync } = require('child_process');
+const PersistentSessionManager = require('./persistent-session');
 
 class TelegramChannel extends NotificationChannel {
     constructor(config = {}) {
@@ -18,7 +19,8 @@ class TelegramChannel extends NotificationChannel {
         this.tmuxMonitor = new TmuxMonitor();
         this.apiBaseUrl = 'https://api.telegram.org';
         this.botUsername = null; // Cache for bot username
-        
+        this.persistentSessions = new PersistentSessionManager(this.sessionsDir);
+
         this._ensureDirectories();
         this._validateConfig();
     }
@@ -106,12 +108,16 @@ class TelegramChannel extends NotificationChannel {
             throw new Error('Telegram channel not properly configured');
         }
 
-        // Generate session ID and Token
-        const sessionId = uuidv4();
-        const token = this._generateToken();
-        
-        // Get current tmux session and conversation content
-        const tmuxSession = this._getCurrentTmuxSession();
+        // Get or create persistent session for this chat
+        const chatId = this.config.groupId || this.config.chatId;
+        const tmuxSession = this._getCurrentTmuxSession() || 'default';
+        const project = notification.project || 'Unknown';
+
+        const session = this.persistentSessions.getOrCreateChatSession(chatId, tmuxSession, project);
+        const sessionId = session.sessionId;
+        const token = session.token;
+
+        // Get conversation content if not already provided
         if (tmuxSession && !notification.metadata) {
             const conversation = this.tmuxMonitor.getRecentConversation(tmuxSession);
             notification.metadata = {
@@ -128,28 +134,23 @@ class TelegramChannel extends NotificationChannel {
         const messageText = this._generateTelegramMessage(notification, sessionId, token);
         
         // Determine recipient (chat or group)
-        const chatId = this.config.groupId || this.config.chatId;
         const isGroupChat = !!this.config.groupId;
         
-        // Create buttons using callback_data instead of inline query
-        // This avoids the automatic @bot_name addition
+        // Create button with new single-word command format
         const buttons = [
             [
                 {
-                    text: '📝 Personal Chat',
-                    callback_data: `personal:${token}`
-                },
-                {
-                    text: '👥 Group Chat', 
-                    callback_data: `group:${token}`
+                    text: '💬 Quick Command',
+                    switch_inline_query_current_chat: `/cmd${token} `
                 }
             ]
         ];
         
+        // Use force reply for easier command input, with inline buttons as shortcuts
         const requestData = {
             chat_id: chatId,
             text: messageText,
-            parse_mode: 'Markdown',
+            // parse_mode: 'Markdown',
             reply_markup: {
                 inline_keyboard: buttons
             }
@@ -178,28 +179,29 @@ class TelegramChannel extends NotificationChannel {
         const status = type === 'completed' ? 'Completed' : 'Waiting for Input';
 
         // Calculate fixed content size first
-        let fixedContent = `${emoji} *Claude Task ${status}*\n`;
-        fixedContent += `*Project:* ${notification.project}\n`;
-        fixedContent += `*Session Token:* \`${token}\`\n\n`;
-        fixedContent += `💬 *To send a new command:*\n`;
-        fixedContent += `Reply with: \`/cmd ${token} <your command>\`\n`;
-        fixedContent += `Example: \`/cmd ${token} Please analyze this code\``;
+        let fixedContent = `${emoji} Claude Task ${status}\n`;
+        fixedContent += `Project: ${notification.project}\n`;
+        fixedContent += `Session Token: ${token}\n\n`;
+        fixedContent += `💬 To send a new command:\n`;
+        fixedContent += `\n/cmd${token} \n`;
+        fixedContent += `(Copy above, add your command)\n`;
+        fixedContent += `Example: /cmd${token} Please analyze this code`;
 
         // Telegram limit is 4096 characters - reserve some buffer for markdown formatting
         const maxTotalLength = 4000;
         const fixedContentLength = fixedContent.length;
         const availableSpace = maxTotalLength - fixedContentLength;
 
-        let messageText = `${emoji} *Claude Task ${status}*\n`;
-        messageText += `*Project:* ${notification.project}\n`;
-        messageText += `*Session Token:* \`${token}\`\n\n`;
+        let messageText = `${emoji} Claude Task ${status}\n`;
+        messageText += `Project: ${notification.project}\n`;
+        messageText += `Session Token: ${token}\n\n`;
 
         if (notification.metadata && availableSpace > 100) {
             let remainingSpace = availableSpace;
 
             // Reserve space for section headers
-            const userQuestionHeader = '📝 *Your Question:*\n';
-            const claudeResponseHeader = '🤖 *Claude Response:*\n';
+            const userQuestionHeader = '📝 Your Question:\n';
+            const claudeResponseHeader = '🤖 Claude Response:\n';
             const sectionSeparator = '\n\n';
 
             if (notification.metadata.userQuestion && remainingSpace > 50) {
@@ -232,9 +234,9 @@ class TelegramChannel extends NotificationChannel {
             }
         }
 
-        messageText += `💬 *To send a new command:*\n`;
-        messageText += `Reply with: \`/cmd ${token} <your command>\`\n`;
-        messageText += `Example: \`/cmd ${token} Please analyze this code\``;
+        messageText += `💬 To send a new command:\n`;
+        messageText += `\nLong press :   /cmd${token} \n`;
+        messageText += `write your message`;
 
         return messageText;
     }
