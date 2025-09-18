@@ -176,29 +176,62 @@ class TelegramChannel extends NotificationChannel {
         const type = notification.type;
         const emoji = type === 'completed' ? '✅' : '⏳';
         const status = type === 'completed' ? 'Completed' : 'Waiting for Input';
-        
+
+        // Calculate fixed content size first
+        let fixedContent = `${emoji} *Claude Task ${status}*\n`;
+        fixedContent += `*Project:* ${notification.project}\n`;
+        fixedContent += `*Session Token:* \`${token}\`\n\n`;
+        fixedContent += `💬 *To send a new command:*\n`;
+        fixedContent += `Reply with: \`/cmd ${token} <your command>\`\n`;
+        fixedContent += `Example: \`/cmd ${token} Please analyze this code\``;
+
+        // Telegram limit is 4096 characters - reserve some buffer for markdown formatting
+        const maxTotalLength = 4000;
+        const fixedContentLength = fixedContent.length;
+        const availableSpace = maxTotalLength - fixedContentLength;
+
         let messageText = `${emoji} *Claude Task ${status}*\n`;
         messageText += `*Project:* ${notification.project}\n`;
         messageText += `*Session Token:* \`${token}\`\n\n`;
-        
-        if (notification.metadata) {
-            if (notification.metadata.userQuestion) {
-                messageText += `📝 *Your Question:*\n${notification.metadata.userQuestion.substring(0, 200)}`;
-                if (notification.metadata.userQuestion.length > 200) {
-                    messageText += '...';
+
+        if (notification.metadata && availableSpace > 100) {
+            let remainingSpace = availableSpace;
+
+            // Reserve space for section headers
+            const userQuestionHeader = '📝 *Your Question:*\n';
+            const claudeResponseHeader = '🤖 *Claude Response:*\n';
+            const sectionSeparator = '\n\n';
+
+            if (notification.metadata.userQuestion && remainingSpace > 50) {
+                const headerLength = userQuestionHeader.length + sectionSeparator.length;
+                const maxQuestionLength = Math.min(500, Math.floor(remainingSpace * 0.3) - headerLength);
+
+                if (maxQuestionLength > 20) {
+                    let questionText = notification.metadata.userQuestion;
+                    if (questionText.length > maxQuestionLength) {
+                        questionText = questionText.substring(0, maxQuestionLength - 3) + '...';
+                    }
+
+                    messageText += userQuestionHeader + questionText + sectionSeparator;
+                    remainingSpace -= (headerLength + questionText.length);
                 }
-                messageText += '\n\n';
             }
-            
-            if (notification.metadata.claudeResponse) {
-                messageText += `🤖 *Claude Response:*\n${notification.metadata.claudeResponse.substring(0, 300)}`;
-                if (notification.metadata.claudeResponse.length > 300) {
-                    messageText += '...';
+
+            if (notification.metadata.claudeResponse && remainingSpace > 50) {
+                const headerLength = claudeResponseHeader.length + sectionSeparator.length;
+                const maxResponseLength = remainingSpace - headerLength - 10; // Small buffer
+
+                if (maxResponseLength > 20) {
+                    let responseText = notification.metadata.claudeResponse;
+                    if (responseText.length > maxResponseLength) {
+                        responseText = responseText.substring(0, maxResponseLength - 3) + '...';
+                    }
+
+                    messageText += claudeResponseHeader + responseText + sectionSeparator;
                 }
-                messageText += '\n\n';
             }
         }
-        
+
         messageText += `💬 *To send a new command:*\n`;
         messageText += `Reply with: \`/cmd ${token} <your command>\`\n`;
         messageText += `Example: \`/cmd ${token} Please analyze this code\``;
