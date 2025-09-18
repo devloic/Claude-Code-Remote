@@ -237,12 +237,12 @@ class TmuxMonitor extends EventEmitter {
             /done/i
         ];
         
-        // Claude Code specific pattern: ⏺ response followed by box
-        const hasClaudeResponse = /⏺.*/.test(bufferText) || /⏺.*/.test(recentText);
+        // Claude Code specific pattern: ● response followed by box (updated to match actual format)
+        const hasClaudeResponse = /●.*/.test(bufferText) || /●.*/.test(recentText) || /⏺.*/.test(bufferText) || /⏺.*/.test(recentText);
         const hasBoxStart = /╭.*╮/.test(recentText);
         const hasBoxEnd = /╰.*╯/.test(recentText);
         
-        // Look for the pattern: ⏺ response -> box -> empty prompt
+        // Look for the pattern: ● or ⏺ response -> box -> empty prompt
         const isCompleteResponse = hasClaudeResponse && (hasBoxStart || hasBoxEnd);
         
         return completionIndicators.some(pattern => pattern.test(recentText)) ||
@@ -320,8 +320,8 @@ class TmuxMonitor extends EventEmitter {
                 continue;
             }
             
-            // Look for Claude response (⏺ prefix)
-            if (line.startsWith('⏺ ') && line.length > 2) {
+            // Look for Claude response (● or ⏺ prefix)
+            if ((line.startsWith('● ') || line.startsWith('⏺ ')) && line.length > 2) {
                 claudeResponse = line.substring(2).trim();
                 break;
             }
@@ -520,7 +520,7 @@ class TmuxMonitor extends EventEmitter {
         
         // Find where the last Claude response starts
         for (let i = lines.length - 1; i >= 0; i--) {
-            if (lines[i].startsWith('⏺ ')) {
+            if (lines[i].startsWith('● ') || lines[i].startsWith('⏺ ')) {
                 lastClaudeResponseStart = i;
                 break;
             }
@@ -545,7 +545,7 @@ class TmuxMonitor extends EventEmitter {
             // Still in user input (continuation lines)
             if (inUserInput) {
                 // Check if we've reached the end of user input
-                if (line.trim() === '' || line.startsWith('⏺')) {
+                if (line.trim() === '' || line.startsWith('●') || line.startsWith('⏺')) {
                     inUserInput = false;
                     if (skipNextEmptyLine && line.trim() === '') {
                         skipNextEmptyLine = false;
@@ -637,26 +637,26 @@ class TmuxMonitor extends EventEmitter {
             }
             
             // Continue capturing multi-line user input
-            if (inUserInput && !line.startsWith('⏺') && line.length > 0) {
+            if (inUserInput && !line.startsWith('●') && !line.startsWith('⏺') && line.length > 0) {
                 userQuestionLines.push(line);
                 continue;
             }
             
             // End of user input
-            if (inUserInput && (line.startsWith('⏺') || line.length === 0)) {
+            if (inUserInput && (line.startsWith('●') || line.startsWith('⏺') || line.length === 0)) {
                 inUserInput = false;
                 userQuestion = userQuestionLines.join(' ');
             }
             
-            // Detect Claude response (line starting with "⏺ " or other response indicators)
-            if (line.startsWith('⏺ ') || 
+            // Detect Claude response (line starting with "● " or "⏺ " or other response indicators)
+            if (line.startsWith('● ') || line.startsWith('⏺ ') || 
                 (inResponse && line.length > 0 && 
                  !line.startsWith('╭') && !line.startsWith('│') && !line.startsWith('╰') &&
                  !line.startsWith('> ') && !line.includes('? for shortcuts'))) {
                 
-                if (line.startsWith('⏺ ')) {
+                if (line.startsWith('● ') || line.startsWith('⏺ ')) {
                     inResponse = true;
-                    responseLines = [line.substring(2).trim()]; // Remove "⏺ " prefix
+                    responseLines = [line.substring(2).trim()]; // Remove "● " or "⏺ " prefix
                 } else if (inResponse) {
                     responseLines.push(line);
                 }
